@@ -1,0 +1,70 @@
+// ===== 1. VARIÁVEIS (VAR/RETURN): legibilidade e performance =====
+Consumo Médio por Km =
+VAR _litros = SUM ( fCombustivel[Litros] )          // calcula uma vez
+VAR _km     = SUM ( fCombustivel[Km] )
+VAR _result = DIVIDE ( _litros, _km, 0 )            // DIVIDE evita erro de divisão por zero
+RETURN _result
+
+// ===== 2. CALCULATE: muda o contexto de filtro =====
+Litros Caminhões =
+CALCULATE (
+    SUM ( fCombustivel[Litros] ),
+    dVeiculo[Tipo] = "Caminhão"                      // filtro simples
+)
+
+Litros Turno Noite =
+CALCULATE (
+    SUM ( fCombustivel[Litros] ),
+    FILTER ( dTurno, dTurno[Turno] = "Noite" )       // FILTER para condições complexas
+)
+
+// ===== 3. ALL / ALLSELECTED: remove filtros (% do total) =====
+% do Total =
+DIVIDE (
+    SUM ( fCombustivel[Litros] ),
+    CALCULATE ( SUM ( fCombustivel[Litros] ), ALL ( dVeiculo ) )
+)
+
+// ===== 4. Iteradores (SUMX): calcula linha a linha =====
+Custo Total =
+SUMX ( fCombustivel, fCombustivel[Litros] * fCombustivel[PrecoLitro] )
+
+// ===== 5. Time intelligence (exige dCalendario marcada como tabela de datas) =====
+Litros Mês Anterior =
+CALCULATE ( SUM ( fCombustivel[Litros] ), DATEADD ( dCalendario[Data], -1, MONTH ) )
+
+Variação MoM % =
+VAR _atual = SUM ( fCombustivel[Litros] )
+VAR _ant   = [Litros Mês Anterior]
+RETURN DIVIDE ( _atual - _ant, _ant )
+
+// ===== 6. ADDCOLUMNS: adiciona colunas calculadas a uma tabela virtual =====
+Tabela Veiculos =
+ADDCOLUMNS (
+    VALUES ( dVeiculo[Placa] ),                      // base: placas únicas
+    "Litros", CALCULATE ( SUM ( fCombustivel[Litros] ) ),
+    "Km",     CALCULATE ( SUM ( fCombustivel[Km] ) )
+)
+
+// ===== 7. SUMMARIZE / SUMMARIZECOLUMNS: agrupa (GROUP BY do DAX) =====
+Resumo por Placa e Mês =
+SUMMARIZECOLUMNS (
+    dVeiculo[Placa],
+    dCalendario[MesAno],
+    "Litros", SUM ( fCombustivel[Litros] ),
+    "Km",     SUM ( fCombustivel[Km] )
+)
+
+// ===== 8. TOPN + RANKX: ranking =====
+Top 5 Piores Consumos =
+TOPN (
+    5,
+    ADDCOLUMNS (
+        VALUES ( dVeiculo[Placa] ),
+        "Consumo", [Consumo Médio por Km]
+    ),
+    [Consumo], DESC
+)
+
+Ranking Veículo =
+RANKX ( ALL ( dVeiculo[Placa] ), [Consumo Médio por Km], , DESC, DENSE )
