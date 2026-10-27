@@ -1,0 +1,60 @@
+Eficiência Motorista = 
+-- Pesos do slide (devem somar 100%)
+VAR PesoOcioso = 0.40
+VAR PesoCiclo  = 0.30
+VAR PesoTon    = 0.30
+
+-- METAS (AJUSTE para as metas reais do contrato)
+VAR MetaOcioso = 10    -- máx. de ocioso por viagem (mesma unidade de 'Ociosidade'[Tempo Ocioso])
+VAR MetaCiclo  = 120   -- ciclo médio alvo (mesma unidade de [Tempo Ciclo Medio Por Dia])
+VAR MetaTon    = 30    -- toneladas por viagem alvo (mesma unidade de PESO NF)
+
+-- 1. Indicadores brutos no contexto atual (placa da linha, ou total nos totais)
+VAR Oc =
+    DIVIDE (
+        SUM ( 'Ociosidade'[Tempo Ocioso] ),
+        DISTINCTCOUNT ( 'CONTROLE DE ENTRADA DE MATERIAL (2)'[TICKET] )
+    )
+VAR Ci = [Tempo Ciclo Medio Por Dia]
+VAR Ton =
+    DIVIDE (
+        SUM ( 'CONTROLE DE ENTRADA DE MATERIAL (2)'[PESO NF] ),
+        DISTINCTCOUNT ( 'CONTROLE DE ENTRADA DE MATERIAL (2)'[TICKET] )
+    )
+
+-- 2. Eficiência de cada indicador (0 a 100%, limitada em 100%)
+-- Ocioso e ciclo: menor é melhor, então eficiência = meta / real (se ficou dentro da meta, 100%)
+VAR EfOc  = IF ( Oc <= MetaOcioso, 1, DIVIDE ( MetaOcioso, Oc ) )
+VAR EfCi  = IF ( Ci <= MetaCiclo,  1, DIVIDE ( MetaCiclo,  Ci ) )
+-- Toneladas: maior é melhor, então eficiência = real / meta (limitada em 100%)
+VAR EfTon = MIN ( 1, DIVIDE ( Ton, MetaTon ) )
+
+-- 3. Eficiência combinada ponderada
+VAR Resultado =
+    EfOc * PesoOcioso
+  + EfCi * PesoCiclo
+  + EfTon * PesoTon
+
+RETURN
+    -- Sem algum dos 3 indicadores, não calcula (evita nota inflada por dado faltando)
+    IF ( ISBLANK ( Oc ) || ISBLANK ( Ci ) || ISBLANK ( Ton ), BLANK (), Resultado )
+
+
+-- ===== RANKING (1 = mais eficiente) =====
+Ranking Eficiência =
+VAR EfAtual = [Eficiência Motorista]
+RETURN
+    IF (
+        NOT ISBLANK ( EfAtual ) && ISINSCOPE ( 'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA] ),
+        RANKX (
+            -- só ranqueia placas que têm eficiência calculada
+            FILTER (
+                ALLSELECTED ( 'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA] ),
+                NOT ISBLANK ( [Eficiência Motorista] )
+            ),
+            [Eficiência Motorista],
+            ,
+            DESC,   -- maior eficiência = 1º lugar
+            DENSE
+        )
+    )
