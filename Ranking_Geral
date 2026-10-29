@@ -1,0 +1,79 @@
+// ===== 1. SCORE CICLO 0 a 1 (INVERSO: menor tempo = nota maior) =====
+// Troque 'Motoristas'[Motorista] pela sua tabela/coluna real de motorista
+Score Ciclo =
+VAR _Atual = [Tempo Ciclo Medio Por Dia]
+VAR _Tab =
+    ADDCOLUMNS (
+        ALLSELECTED ( 'Motoristas'[Motorista] ),
+        "@Valor", [Tempo Ciclo Medio Por Dia]      // calcula 1x por motorista
+    )
+VAR _Min = MINX ( _Tab, [@Valor] )
+VAR _Max = MAXX ( _Tab, [@Valor] )
+RETURN
+    IF (
+        ISBLANK ( _Atual ),
+        BLANK (),
+        DIVIDE ( _Max - _Atual, _Max - _Min, 1 )   // 1 se min = max
+    )
+
+
+// ===== 2. SCORE VOLUME 0 a 1 (DIRETO: mais volume = nota maior) =====
+Score Volume =
+VAR _Atual = [Volume Transportados]
+VAR _Tab =
+    ADDCOLUMNS (
+        ALLSELECTED ( 'Motoristas'[Motorista] ),
+        "@Valor", [Volume Transportados]
+    )
+VAR _Min = MINX ( _Tab, [@Valor] )
+VAR _Max = MAXX ( _Tab, [@Valor] )
+RETURN
+    IF (
+        ISBLANK ( _Atual ),
+        BLANK (),
+        DIVIDE ( _Atual - _Min, _Max - _Min, 1 )
+    )
+
+
+// ===== 3. SCORE QTD CICLOS 0 a 1 (DIRETO: mais ciclos = nota maior) =====
+Score Qtd Ciclos =
+VAR _Atual = [Qtd Ciclos]
+VAR _Tab =
+    ADDCOLUMNS (
+        ALLSELECTED ( 'Motoristas'[Motorista] ),
+        "@Valor", [Qtd Ciclos]
+    )
+VAR _Min = MINX ( _Tab, [@Valor] )
+VAR _Max = MAXX ( _Tab, [@Valor] )
+RETURN
+    IF (
+        ISBLANK ( _Atual ),
+        BLANK (),
+        DIVIDE ( _Atual - _Min, _Max - _Min, 1 )
+    )
+
+
+// ===== 4. SCORE FINAL 0 a 100 (um único ADDCOLUMNS para o ranking) =====
+// Pesos: ciclo 0,40 | volume 0,30 | qtd ciclos 0,30
+// Score em branco vira 0 (sem dado naquele critério = sem pontos)
+Score Final =
+( 0.40 * COALESCE ( [Score Ciclo], 0 )
++ 0.30 * COALESCE ( [Score Volume], 0 )
++ 0.30 * COALESCE ( [Score Qtd Ciclos], 0 ) ) * 100
+
+
+// ===== 5. RANKING FINAL (1 = melhor) =====
+// ADDCOLUMNS calcula o Score Final uma vez por motorista; depois o RANKX só compara
+Ranking Score Final =
+VAR _Atual = [Score Final]
+VAR _Tab =
+    ADDCOLUMNS (
+        ALLSELECTED ( 'Motoristas'[Motorista] ),
+        "@Score", [Score Final]
+    )
+RETURN
+    IF (
+        ISBLANK ( _Atual ),
+        BLANK (),
+        RANKX ( _Tab, [@Score], _Atual, DESC, Dense )
+    )
