@@ -1,0 +1,117 @@
+let
+    Fonte = Excel.Workbook(
+        File.Contents("Q:\MONITORAMENTO\Base_Business\BASES\Abastecimento_Forvias\CONTROLE DE ENTRADA DE MATERIAS  2026 (2).xlsx"),
+        null,
+        true
+    ),
+
+    Navegação = Fonte{[Item = "CONTROLE DE ENTRADA DE MATERIAL", Kind = "Sheet"]}[Data],
+
+    #"Cabeçalhos Promovidos" = Table.PromoteHeaders(Navegação, [PromoteAllScalars = true]),
+
+    #"Tipo Alterado" = Table.TransformColumnTypes(
+        #"Cabeçalhos Promovidos",
+        {
+            {"TICKET", Int64.Type},
+            {"PLACA", type text},
+            {"FORNECEDOR", type text},
+            {"MATERIAL", type text},
+            {"PESO CARREGADO (ENTRADA)", Int64.Type},
+            {"HORA INCIAL ", type datetime},
+            {"PESO VAZIO (SAIDA)", Int64.Type},
+            {"HORA FINAL", type datetime},
+            {"PESO LIQUIDO", type number},
+            {"PESO NF", type number},
+            {"DIFERENÇA DE PESO (T)", type number},
+            {"VALOR UNITÁRIO", type number},
+            {"VALOR TOTAL NF", type number},
+            {"DIFERENÇA DE VALOR", type number},
+            {"NFº", Int64.Type},
+            {"TICKET_1", Int64.Type},
+            {"RESPONSAVEL", type text},
+            {"OBSERVAÇÃO", type text},
+            {"Column19", type any},
+            {"Column20", type any},
+            {"Column21", type any},
+            {"FORNECEDOR_2", type text},
+            {"Column23", type any},
+            {"MATERIAL_3", type text}
+        }
+    ),
+
+    #"Valor Substituído" = Table.ReplaceValue(
+        #"Tipo Alterado", "-", "", Replacer.ReplaceText, {"PLACA"}
+    ),
+
+    #"Colunas Removidas" = Table.RemoveColumns(
+        #"Valor Substituído",
+        {"OBSERVAÇÃO", "Column19", "Column20", "Column21", "FORNECEDOR_2", "Column23", "MATERIAL_3"}
+    ),
+
+    // Remove linhas sem HORA FINAL ou sem PLACA (não dá pra calcular ciclo nelas)
+    #"Linhas Válidas" = Table.SelectRows(
+        #"Colunas Removidas",
+        each [HORA FINAL] <> null and [PLACA] <> null and [PLACA] <> ""
+    ),
+
+    #"Adicionado DATA" = Table.AddColumn(
+        #"Linhas Válidas", "DATA", each Date.From([HORA FINAL]), type date
+    ),
+
+    // Agrupa por PLACA + DATA: o cálculo nunca atravessa o dia
+    #"Agrupado por Placa e Data" = Table.Group(
+        #"Adicionado DATA",
+        {"PLACA", "DATA"},
+        {
+            {
+                "Viagens",
+                (TabelaDia as table) as table =>
+                    let
+                        // Ordena cronologicamente dentro do dia
+                        Ordenada = Table.Sort(
+                            TabelaDia,
+                            {{"HORA FINAL", Order.Ascending}, {"TICKET", Order.Ascending}}
+                        ),
+
+                        ComIndice = Table.AddIndexColumn(Ordenada, "Idx", 0, 1, Int64.Type),
+
+                        // Buffer das listas para o acesso por índice ficar rápido
+                        Horas   = List.Buffer(ComIndice[HORA FINAL]),
+                        Tickets = List.Buffer(ComIndice[TICKET]),
+
+                        // Ciclo em MINUTOS (number) = HORA FINAL atual - HORA FINAL anterior
+                        ComCiclo = Table.AddColumn(
+                            ComIndice,
+                            "Tempo Ciclo (min)",
+                            each
+                                let
+                                    i = [Idx]
+                                in
+                                    if i = 0 then null  // 1ª viagem do dia: sem anterior
+                                    else if Tickets{i} = Tickets{i - 1}
+                                         and Horas{i} = Horas{i - 1}
+                                    then null           // duplicado: não calcula
+                                    else Number.Round(
+                                            Duration.TotalMinutes(Horas{i} - Horas{i - 1}), 2
+                                         ),             // diferença 0 (ticket diferente) retorna 0
+                            type nullable number
+                        ),
+
+                        Resultado = Table.RemoveColumns(ComCiclo, {"Idx"})
+                    in
+                        Resultado,
+                type table
+            }
+        }
+    ),
+
+    // Junta todas as tabelas de volta (já traz PLACA e DATA dentro de cada uma)
+    #"Viagens Combinadas" = Table.Combine(#"Agrupado por Placa e Data"[Viagens]),
+
+    // Garante os tipos finais
+    #"Tipos Finais" = Table.TransformColumnTypes(
+        #"Viagens Combinadas",
+        {{"DATA", type date}, {"Tempo Ciclo (min)", type number}}
+    )
+in
+    #"Tipos Finais"
