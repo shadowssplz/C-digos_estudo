@@ -1,0 +1,81 @@
+Tempo Ciclo Medio Por Dia = 
+-- Limite máximo da média da placa/dia, em minutos (convertido para fração de dia)
+VAR LimiteMin  = 180
+VAR LimiteDias = LimiteMin / 1440
+
+RETURN
+AVERAGEX(
+    -- 1. Agrupa por Data e por Placa
+    SUMMARIZE(
+        'CONTROLE DE ENTRADA DE MATERIAL (2)',
+        dCalendario[Date],
+        'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA]
+    ),
+
+    -- 2. Tabela virtual calculando o tempo de ciclo de cada registro individual daquela placa/dia
+    VAR TabelaComCiclos = 
+        ADDCOLUMNS(
+            CALCULATETABLE('CONTROLE DE ENTRADA DE MATERIAL (2)'),
+            "HoraAtual", 'CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL],
+            "ProximaHora", 
+                VAR hAtual = 'CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL]
+                VAR pPlaca = 'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA]
+                VAR pData = dCalendario[Date]
+                RETURN
+                    CALCULATE(
+                        MIN('CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL]),
+                        ALLEXCEPT('CONTROLE DE ENTRADA DE MATERIAL (2)', 'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA]),
+                        dCalendario[Date] = pData,
+                        'CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL] > hAtual
+                    )
+        )
+
+    -- 3. Tabela adicionando o desvio D+2 quando a diferença D+1 for zero
+    VAR TabelaCicloFinal = 
+        ADDCOLUMNS(
+            TabelaComCiclos,
+            "HoraUsada",
+                VAR hAtual = [HoraAtual]
+                VAR pHora = [ProximaHora]
+                VAR pPlaca = 'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA]
+                VAR pData = dCalendario[Date]
+                VAR Dif = hAtual - pHora
+                VAR HoraPosteriorPosterior = 
+                    CALCULATE(
+                        MIN('CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL]),
+                        ALLEXCEPT('CONTROLE DE ENTRADA DE MATERIAL (2)', 'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA]),
+                        dCalendario[Date] = pData,
+                        'CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL] > pHora
+                    )
+                RETURN
+                    IF(
+                        ISBLANK(pHora), 
+                        BLANK(),
+                        IF(Dif = 0, HoraPosteriorPosterior, pHora)
+                    )
+        )
+
+    -- 4. Calcula o tempo de ciclo individual e filtra apenas os que não são em branco
+    VAR SomaTempo = 
+        SUMX(
+            TabelaCicloFinal,
+            IF(NOT ISBLANK([HoraUsada]), [HoraUsada] - [HoraAtual], BLANK())
+        )
+
+    VAR QtdCiclosValidos = 
+        COUNTX(
+            TabelaCicloFinal,
+            IF(NOT ISBLANK([HoraUsada]), 1, BLANK())
+        )
+
+    -- 5. Média da placa no dia (em fração de dia)
+    VAR MediaPlacaDia = DIVIDE(SomaTempo, QtdCiclosValidos)
+
+    -- 6. Se a média passar de 180 min, retorna BLANK e a placa/dia sai do cálculo
+    RETURN
+        IF(
+            ISBLANK(MediaPlacaDia),
+            BLANK(),
+            IF(MediaPlacaDia > LimiteDias, BLANK(), MediaPlacaDia)
+        )
+)
