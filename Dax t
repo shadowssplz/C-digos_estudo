@@ -1,0 +1,9 @@
+Qtd Linhas Distintas =
+COUNTROWS (
+    DISTINCT (
+        SELECTCOLUMNS (
+            FILTER ( Tabela, Tabela[ColunaA] = "valor" ),
+            "ID", Tabela[ColunaB]
+        )
+    )
+)
