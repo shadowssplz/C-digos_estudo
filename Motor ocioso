@@ -1,0 +1,25 @@
+Inicio Ciclo =
+// Guarda o veículo da linha atual
+VAR Veic = 'Controle Materiais'[Veiculo]
+// Guarda a HORA FINAL da linha atual
+VAR HoraAtual = 'Controle Materiais'[HORA FINAL]
+// Busca a HORA FINAL anterior: é o início do ciclo atual
+VAR HoraAnterior =
+    CALCULATE (
+        // MAX pega a mais recente entre as anteriores (o ciclo imediatamente antes)
+        MAX ( 'Controle Materiais'[HORA FINAL] ),
+        FILTER (
+            // ALL ignora filtros do relatório e olha a tabela inteira
+            ALL ( 'Controle Materiais' ),
+            // só o mesmo veículo
+            'Controle Materiais'[Veiculo] = Veic
+                // só o mesmo dia (INT remove a hora e deixa só a data)
+                // isso impede calcular diferença entre dias diferentes
+                && INT ( 'Controle Materiais'[HORA FINAL] ) = INT ( HoraAtual )
+                // só ciclos anteriores ao atual
+                && 'Controle Materiais'[HORA FINAL] < HoraAtual
+        )
+    )
+RETURN
+    // No primeiro ciclo do dia não existe anterior, então fica vazio
+    HoraAnterior
