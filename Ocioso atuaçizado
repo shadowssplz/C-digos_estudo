@@ -1,0 +1,37 @@
+Media Ocioso (filtrado) = 
+VAR MediaHoras =
+    SUMX (
+        FILTER (
+            'Motor Ocioso novo',
+            -- Dados da linha de ocioso que está sendo testada
+            VAR Veic = 'MOTOR OCIOSO NOVO'[Placa]        -- ajuste ao nome real da coluna
+            VAR Ent  = 'MOTOR OCIOSO NOVO'[Data de entrada]  -- início do ocioso
+            VAR Sai  = 'MOTOR OCIOSO NOVO'[Data de saída]  -- fim do ocioso
+
+            -- Teste 1: entrada a partir das 06:00 e saída até as 18:00
+            VAR NaJanela =
+                ( Ent - INT ( Ent ) ) >= TIME ( 6, 0, 0 )
+                    && ( Sai - INT ( Sai ) ) <= TIME ( 18, 0, 0 )
+                    -- && INT ( Ent ) = INT ( Sai )   -- descomente para exigir mesmo dia
+
+            -- Teste 2: ocioso dentro de um Carregamento Pedreira do mesmo veículo
+            VAR NaAtividade =
+                COUNTROWS (
+                    FILTER (
+                        'USINA CONTROLE',
+                        'USINA CONTROLE'[Placa:] = Veic                              -- ajuste ao nome real
+                            && 'USINA CONTROLE'[ATIVIDADE] = "Carregamento Pedreira"  -- atividade certa
+                            && 'USINA CONTROLE'[Saída:] <= Ent                    -- trabalho começou antes do ocioso
+                            && 'USINA CONTROLE'[Retorno:] >= Sai                       -- trabalho terminou depois do ocioso
+                    )
+                ) > 0
+
+            RETURN
+                NaJanela && NaAtividade
+        ),
+        -- Coluna em horas decimais (ex.: 1,5 = 1h30)
+        'Motor Ocioso novo'[tempo parado decimal]
+    )
+RETURN
+    -- 24 = horas em um dia: converte horas em fração de dia (formato de hora)
+    DIVIDE ( MediaHoras, 24 )
