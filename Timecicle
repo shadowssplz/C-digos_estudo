@@ -1,0 +1,82 @@
+Tempo Ciclo Soma (hh:mm:ss) =
+-- Limite da média da placa/dia, em minutos. Use 99999 para desligar o limite e comparar
+VAR LimiteMin  = 180
+VAR LimiteDias = LimiteMin / 1440
+
+VAR SomaDias =
+    SUMX (
+        -- 1. Uma linha por Data e Placa
+        SUMMARIZE (
+            'CONTROLE DE ENTRADA DE MATERIAL (2)',
+            dCalendario[Date],
+            'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA]
+        ),
+
+        -- 2. Próxima hora final da mesma placa no mesmo dia
+        VAR TabelaComCiclos =
+            ADDCOLUMNS (
+                CALCULATETABLE ( 'CONTROLE DE ENTRADA DE MATERIAL (2)' ),
+                "HoraAtual", 'CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL],
+                "ProximaHora",
+                    VAR hAtual = 'CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL]
+                    VAR pData  = dCalendario[Date]
+                    RETURN
+                        CALCULATE (
+                            MIN ( 'CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL] ),
+                            ALLEXCEPT (
+                                'CONTROLE DE ENTRADA DE MATERIAL (2)',
+                                'CONTROLE DE ENTRADA DE MATERIAL (2)'[PLACA]
+                            ),
+                            dCalendario[Date] = pData,
+                            'CONTROLE DE ENTRADA DE MATERIAL (2)'[HORA FINAL] > hAtual
+                        )
+            )
+
+        -- 3. Duração de cada ciclo, descontando 1h quando o ciclo cobre o almoço (12h às 13h)
+        VAR TabelaComDuracao =
+            ADDCOLUMNS (
+                TabelaComCiclos,
+                "@Duracao",
+                    IF (
+                        NOT ISBLANK ( [ProximaHora] ),
+                        VAR Ini     = [HoraAtual]
+                        VAR Fim     = [ProximaHora]
+                        VAR IniHora = Ini - INT ( Ini )   -- só o horário do início
+                        VAR FimHora = Fim - INT ( Fim )   -- só o horário do fim
+                        -- o ciclo começa até 12:00 e termina a partir de 13:00
+                        VAR CobreAlmoco =
+                            IniHora <= TIME ( 12, 0, 0 ) && FimHora >= TIME ( 13, 0, 0 )
+                        RETURN
+                            ( Fim - Ini ) - IF ( CobreAlmoco, TIME ( 1, 0, 0 ), 0 )   -- tira 1h
+                    )
+            )
+
+        -- 4. Soma dos ciclos da placa no dia (fração de dia) e quantidade de ciclos
+        VAR SomaTempo = SUMX ( TabelaComDuracao, [@Duracao] )
+        VAR QtdCiclos =
+            COUNTX (
+                TabelaComDuracao,
+                IF ( NOT ISBLANK ( [@Duracao] ), 1 )
+            )
+        VAR MediaPlacaDia = DIVIDE ( SomaTempo, QtdCiclos )
+
+        RETURN
+            -- 5. A placa/dia só entra se a média (já sem o almoço) não passar do limite
+            IF ( NOT ISBLANK ( MediaPlacaDia ) && MediaPlacaDia <= LimiteDias, SomaTempo )
+    )
+
+-- 6. Fração de dia x 86400 = segundos inteiros
+VAR Seg = ROUND ( SomaDias * 86400, 0 )
+
+RETURN
+    IF (
+        ISBLANK ( SomaDias ),
+        BLANK (),
+        FORMAT ( INT ( Seg / 3600 ), "00" ) & ":"
+            & FORMAT ( INT ( MOD ( Seg, 3600 ) / 60 ), "00" ) & ":"
+            & FORMAT ( MOD ( Seg, 60 ), "00" )
+    )
+
+
+\\SE PRECISAR RETIRAR SO O HORARIO DO ALMOÇO
+\\MAX ( 0, MIN ( FimHora, TIME ( 13, 0, 0 ) ) - MAX ( IniHora, TIME ( 12, 0, 0 ) ) )
